@@ -401,6 +401,20 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 self.wfile.write(data)
                 return
 
+            # Serve SSL certificate for easy download on mobile
+            if self.path == "/cert.pem":
+                project_dir = Path(__file__).resolve().parent
+                cert_file = project_dir / config.SSL_CERTFILE
+                if cert_file.is_file():
+                    data = cert_file.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/x-pem-file")
+                    self.send_header("Content-Disposition", "attachment; filename=\"pi-webcam-cert.pem\"")
+                    self.send_header("Content-Length", str(len(data)))
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+
             favicon_file = FAVICON_DIR / Path(self.path).name
             if self.path.startswith("/") and favicon_file.resolve().parent == FAVICON_DIR and favicon_file.is_file():
                 suffix = favicon_file.suffix

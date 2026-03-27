@@ -15,7 +15,11 @@ Lifecam HD-5000 (/dev/video0)
                             rtsp://<pi-ip>:8554/stream
 
   Python orchestrator
-   └─ Web status page (:8080)
+   └─ Web status page (:8080, HTTPS)
+       ├─ Start/stop stream
+       ├─ Switch resolution (720p/480p)
+       ├─ Camera controls (brightness, focus)
+       └─ Installable as PWA on mobile
 ```
 
 - **mediamtx** — lightweight single-binary RTSP server
@@ -35,8 +39,11 @@ Lifecam HD-5000 (/dev/video0)
 git clone <repo-url> pi-webcam-streamer-server
 cd pi-webcam-streamer-server
 
-# Run the setup script (installs ffmpeg, v4l-utils, downloads mediamtx)
+# Run the setup script (installs ffmpeg, v4l-utils, downloads mediamtx, generates SSL cert)
 sudo bash setup.sh
+
+# Fix file ownership (setup runs as root)
+sudo chown $(whoami):$(whoami) cert.pem key.pem mediamtx.yml
 ```
 
 Verify the camera is detected:
@@ -58,8 +65,8 @@ The server will print:
 
 ```
 Starting stream from /dev/video0...
-RTSP stream: rtsp://192.168.1.100:8554/stream
-Status page: http://192.168.1.100:8080/
+RTSP stream: rtsp://admin:password@192.168.1.100:8554/stream
+Status page: https://192.168.1.100:8080/
 Press Ctrl+C to stop.
 ```
 
@@ -73,13 +80,35 @@ Press Ctrl+C to stop.
 
 ### Web Status Page
 
-Open `http://<pi-ip>:8080/` in a browser to see stream status, the RTSP URL, and start/stop controls.
+Open `https://<pi-ip>:8080/` in a browser to see stream status, the RTSP URL, and controls.
+
+Features:
+- **Start/Stop** the stream
+- **Resolution switching** — choose between 720p @ 15fps and 480p @ 30fps (only while stopped)
+- **Camera controls** — adjust brightness, focus, and autofocus via sliders
+- **Live uptime** — updates every second without page refresh
+
+## Authentication
+
+Both the web UI and RTSP stream are password-protected.
+
+- **Web UI** — HTTP Basic Auth (browser will prompt for credentials)
+- **RTSP stream** — credentials are embedded in the RTSP URL
+
+Default credentials:
+
+| | Value |
+|---|---|
+| Username | `admin` |
+| Password | `password` |
+
+Change these in [config.py](config.py) (`AUTH_USERNAME` / `AUTH_PASSWORD`) and restart the server. The same credentials are used for both the web UI and RTSP.
 
 ## Connecting with VLC
 
 1. Open VLC on your client machine
 2. Go to **Media → Open Network Stream** (or `Ctrl+N`)
-3. Enter the RTSP URL: `rtsp://<pi-ip>:8554/stream`
+3. Enter the RTSP URL: `rtsp://admin:password@<pi-ip>:8554/stream`
 4. Click **Play**
 
 > **Tip:** To reduce latency in VLC, go to **Tools → Preferences → Input/Codecs** and set **Network caching** to `300` ms.
@@ -91,11 +120,46 @@ Edit [config.py](config.py) to change defaults:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | `VIDEO_DEVICE` | `/dev/video0` | Camera device |
-| `VIDEO_WIDTH` / `VIDEO_HEIGHT` | `1280` / `720` | Capture resolution |
-| `FRAMERATE` | `15` | Frames per second |
-| `VIDEO_BITRATE` | `1500k` | H.264 encoding bitrate |
+| `RESOLUTION_PRESETS` | `720p15`, `480p30` | Available resolution/fps presets |
+| `DEFAULT_RESOLUTION` | `720p15` | Resolution preset used on startup |
+| `VIDEO_CODEC` | `libx264` | H.264 encoder |
+| `PRESET` | `ultrafast` | x264 encoding speed preset |
 | `RTSP_PORT` | `8554` | RTSP server port |
-| `STATUS_PORT` | `8080` | Web status page port |
+| `STATUS_PORT` | `8080` | Web UI HTTPS port |
+| `AUTH_USERNAME` | `admin` | Username for web UI and RTSP |
+| `AUTH_PASSWORD` | `password` | Password for web UI and RTSP |
+| `SSL_CERTFILE` | `cert.pem` | SSL certificate file |
+| `SSL_KEYFILE` | `key.pem` | SSL private key file |
+
+## Mobile App (PWA)
+
+The web UI can be installed as a standalone app on your phone.
+
+### Android (Chrome)
+
+1. On the Pi, the SSL certificate must be trusted by your phone. Visit `https://<pi-ip>:8080/cert.pem` on your phone to download it
+2. Go to **Settings → Security → Encryption & credentials → Install a certificate → CA certificate** and select the downloaded file
+3. Restart Chrome
+4. Visit `https://<pi-ip>:8080/` and sign in
+5. Chrome will show an "Install app" banner, or use the menu → **Install app**
+
+### iOS (Safari)
+
+1. Visit `https://<pi-ip>:8080/` in Safari and accept the certificate warning
+2. Tap **Share → Add to Home Screen**
+
+> **Note:** iOS does not support full PWA install with self-signed certificates, but the home screen shortcut will open in a standalone window.
+
+## Port Forwarding (Remote Access)
+
+To access the stream remotely, forward these ports on your router:
+
+| Port | Protocol | Purpose |
+|------|----------|--------|
+| `8080` | TCP | Web UI (HTTPS) |
+| `8554` | TCP | RTSP stream |
+
+> **Security:** Change the default credentials in [config.py](config.py) before exposing to the internet.
 
 ## Troubleshooting
 
