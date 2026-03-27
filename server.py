@@ -383,16 +383,6 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
     class Handler(BaseHTTPRequestHandler):
 
         def do_GET(self):
-            if not _check_basic_auth(self.headers):
-                _send_auth_required(self)
-                return
-            if self.path == "/api/controls":
-                self._handle_get_controls()
-                return
-            if self.path == "/api/resolution":
-                self._handle_get_resolution()
-                return
-
             # Serve favicon / PWA assets
             favicon_file = FAVICON_DIR / Path(self.path).name
             if self.path.startswith("/") and favicon_file.resolve().parent == FAVICON_DIR and favicon_file.is_file():
@@ -411,6 +401,16 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                     self.end_headers()
                     self.wfile.write(data)
                     return
+                
+            if not _check_basic_auth(self.headers):
+                _send_auth_required(self)
+                return
+            if self.path == "/api/controls":
+                self._handle_get_controls()
+                return
+            if self.path == "/api/resolution":
+                self._handle_get_resolution()
+                return
 
             if self.path != "/":
                 self.send_error(404)
