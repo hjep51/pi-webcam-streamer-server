@@ -1,11 +1,11 @@
 # Pi Webcam RTSP Streamer
 
-Stream a USB webcam (Microsoft Lifecam HD-3000) from a Raspberry Pi 3B+ as an RTSP feed that VLC can play over the network.
+Stream a USB webcam (Microsoft Lifecam HD-5000) from a Raspberry Pi 3B+ as an RTSP feed that VLC can play over the network.
 
 ## Architecture
 
 ```
-Lifecam HD-3000 (/dev/video0)
+Lifecam HD-5000 (/dev/video0)
         │  V4L2 / MJPEG
         ▼
      FFmpeg  ──RTSP push──▶  mediamtx (:8554)
@@ -25,7 +25,7 @@ Lifecam HD-3000 (/dev/video0)
 ## Prerequisites
 
 - Raspberry Pi 3B+ (or compatible) running Raspberry Pi OS (Bookworm or later)
-- Microsoft Lifecam HD-3000 (or any UVC-compatible USB webcam)
+- Microsoft Lifecam HD-5000 (or any UVC-compatible USB webcam)
 - Network connection (wired or Wi-Fi)
 
 ## Setup
@@ -45,7 +45,7 @@ Verify the camera is detected:
 v4l2-ctl --list-devices
 ```
 
-You should see the Lifecam HD-3000 listed, typically as `/dev/video0`.
+You should see the Lifecam HD-5000 listed, typically as `/dev/video0`.
 
 ## Usage
 
