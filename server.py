@@ -26,11 +26,16 @@ class StreamManager:
 
     def __init__(self, device: str = config.VIDEO_DEVICE):
         self.device = device
+        self.resolution = config.DEFAULT_RESOLUTION
         self._mediamtx_proc: subprocess.Popen | None = None
         self._ffmpeg_proc: subprocess.Popen | None = None
         self._start_time: float | None = None
 
     # -- public API --
+
+    @property
+    def preset(self) -> dict:
+        return config.RESOLUTION_PRESETS[self.resolution]
 
     @property
     def is_running(self) -> bool:
@@ -49,6 +54,20 @@ class StreamManager:
         h, remainder = divmod(elapsed, 3600)
         m, s = divmod(remainder, 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
+
+    @property
+    def resolution_label(self) -> str:
+        p = self.preset
+        return f"{p['width']}x{p['height']} @ {p['fps']} fps"
+
+    def set_resolution(self, key: str) -> str | None:
+        """Change resolution preset. Only allowed while stopped."""
+        if self.is_running:
+            return "Stop the stream before changing resolution."
+        if key not in config.RESOLUTION_PRESETS:
+            return f"Unknown resolution: {key}"
+        self.resolution = key
+        return None
 
     def start(self) -> str | None:
         """Start the stream. Returns an error string or None on success."""
@@ -84,7 +103,8 @@ class StreamManager:
             self._mediamtx_proc = None
             return f"mediamtx exited immediately: {stderr[:500]}"
 
-        # Start FFmpeg
+        # Start FFmpeg using current resolution preset
+        p = self.preset
         rtsp_target = f"rtsp://localhost:{config.RTSP_PORT}/{config.STREAM_NAME}"
         ffmpeg_cmd = [
             "ffmpeg",
@@ -93,15 +113,15 @@ class StreamManager:
             # Input
             "-f", "v4l2",
             "-input_format", config.INPUT_FORMAT,
-            "-video_size", f"{config.VIDEO_WIDTH}x{config.VIDEO_HEIGHT}",
-            "-framerate", str(config.FRAMERATE),
+            "-video_size", f"{p['width']}x{p['height']}",
+            "-framerate", str(p["fps"]),
             "-i", self.device,
             # Encoding
             "-c:v", config.VIDEO_CODEC,
             "-preset", config.PRESET,
             "-tune", config.TUNE,
-            "-b:v", config.VIDEO_BITRATE,
-            "-g", str(config.KEYFRAME_INTERVAL),
+            "-b:v", p["bitrate"],
+            "-g", str(p["keyframe_interval"]),
             # Output
             "-f", "rtsp",
             "-rtsp_transport", "tcp",
@@ -288,6 +308,9 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
             if self.path == "/api/controls":
                 self._handle_get_controls()
                 return
+            if self.path == "/api/resolution":
+                self._handle_get_resolution()
+                return
 
             if self.path != "/":
                 self.send_error(404)
@@ -301,7 +324,7 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 .replace("{{status_text}}", "Streaming" if running else "Stopped")
                 .replace("{{rtsp_url}}", html.escape(rtsp_url))
                 .replace("{{device}}", html.escape(manager.device))
-                .replace("{{resolution}}", f"{config.VIDEO_WIDTH}x{config.VIDEO_HEIGHT} @ {config.FRAMERATE} fps")
+                .replace("{{resolution}}", html.escape(manager.resolution_label))
                 .replace("{{uptime}}", html.escape(manager.uptime))
                 .replace("{{uptime_class}}", "" if running else "muted")
                 .replace("{{start_disabled}}", "disabled" if running else "")
@@ -323,6 +346,9 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
             elif self.path == "/api/controls":
                 self._handle_set_controls()
                 return
+            elif self.path == "/api/resolution":
+                self._handle_set_resolution()
+                return
             else:
                 self.send_error(404)
                 return
@@ -331,6 +357,38 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
+
+        # -- Resolution API --
+
+        def _handle_get_resolution(self):
+            presets = {}
+            for key, p in config.RESOLUTION_PRESETS.items():
+                presets[key] = f"{p['width']}x{p['height']} @ {p['fps']} fps"
+            self._send_json(200, {
+                "current": manager.resolution,
+                "presets": presets,
+                "locked": manager.is_running,
+            })
+
+        def _handle_set_resolution(self):
+            length = int(self.headers.get("Content-Length", 0))
+            if length == 0 or length > 1024:
+                self._send_json(400, {"error": "Invalid request body"})
+                return
+            try:
+                body = json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError, ValueError):
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+            key = body.get("resolution") if isinstance(body, dict) else None
+            if not isinstance(key, str):
+                self._send_json(400, {"error": "Missing 'resolution' string"})
+                return
+            err = manager.set_resolution(key)
+            if err:
+                self._send_json(400, {"error": err})
+            else:
+                self._handle_get_resolution()
 
         # -- Camera controls API --
 

@@ -100,6 +100,55 @@
             color: #8899aa;
             margin-bottom: 0.75rem;
         }
+        .resolution-picker {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: #0f3460;
+            border-radius: 8px;
+        }
+        .resolution-options {
+            display: flex;
+            gap: 0.75rem;
+        }
+        .resolution-options label {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 0.75rem;
+            background: #1a1a2e;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-family: "SF Mono", "Fira Code", monospace;
+            color: #8899aa;
+            border: 2px solid transparent;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .resolution-options input[type="radio"] {
+            accent-color: #4ecca3;
+            width: 15px;
+            height: 15px;
+        }
+        .resolution-options label.selected {
+            border-color: #4ecca3;
+            color: #4ecca3;
+        }
+        .resolution-options label.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .resolution-msg {
+            font-size: 0.75rem;
+            color: #e94560;
+            margin-top: 0.5rem;
+            min-height: 1em;
+        }
+        .resolution-hint {
+            font-size: 0.7rem;
+            color: #667788;
+            margin-top: 0.4rem;
+        }
         .camera-controls {
             margin-top: 1.5rem;
             padding: 1rem;
@@ -208,7 +257,7 @@
             </div>
             <div class="info-item">
                 <label>Resolution</label>
-                <div class="value">{{resolution}}</div>
+                <div class="value" id="resolution-display">{{resolution}}</div>
             </div>
             <div class="info-item">
                 <label>Uptime</label>
@@ -223,6 +272,15 @@
             <form method="POST" action="/stop">
                 <button type="submit" class="btn-stop" {{stop_disabled}}>Stop</button>
             </form>
+        </div>
+
+        <div class="resolution-picker">
+            <div class="section-title">Resolution</div>
+            <div id="resolution-options" class="resolution-options">
+                <div style="color:#8899aa; font-size:0.85rem;">Loading...</div>
+            </div>
+            <div id="resolution-msg" class="resolution-msg"></div>
+            <div id="resolution-hint" class="resolution-hint"></div>
         </div>
 
         <div class="camera-controls">
@@ -241,6 +299,75 @@
 
     <script>
     (function() {
+        /* ---- Resolution picker ---- */
+        const resContainer = document.getElementById('resolution-options');
+        const resMsgEl = document.getElementById('resolution-msg');
+        const resHintEl = document.getElementById('resolution-hint');
+        const resDisplay = document.getElementById('resolution-display');
+
+        function fetchResolution() {
+            fetch('/api/resolution')
+                .then(r => r.json())
+                .then(renderResolution)
+                .catch(() => {
+                    resContainer.innerHTML = '<div style="color:#8899aa;font-size:0.85rem;">Could not load resolution options.</div>';
+                });
+        }
+
+        function renderResolution(data) {
+            resContainer.innerHTML = '';
+            resMsgEl.textContent = '';
+            const locked = data.locked;
+            resHintEl.textContent = locked ? 'Stop the stream to change resolution.' : '';
+
+            for (const [key, label] of Object.entries(data.presets)) {
+                const wrapper = document.createElement('label');
+                wrapper.className = key === data.current ? 'selected' : '';
+                if (locked) wrapper.classList.add('locked');
+
+                const radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'resolution';
+                radio.value = key;
+                radio.checked = key === data.current;
+                radio.disabled = locked;
+
+                radio.addEventListener('change', function() {
+                    if (this.checked) setResolution(this.value);
+                });
+
+                const text = document.createTextNode(label);
+                wrapper.appendChild(radio);
+                wrapper.appendChild(text);
+                resContainer.appendChild(wrapper);
+            }
+        }
+
+        function setResolution(key) {
+            resMsgEl.textContent = '';
+            fetch('/api/resolution', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({resolution: key})
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    resMsgEl.textContent = data.error;
+                    fetchResolution();
+                } else {
+                    renderResolution(data);
+                    if (data.presets && data.current) {
+                        resDisplay.textContent = data.presets[data.current];
+                    }
+                }
+            })
+            .catch(() => { resMsgEl.textContent = 'Failed to change resolution.'; });
+        }
+
+        fetchResolution();
+
+        /* ---- Camera controls ---- */
         const container = document.getElementById('controls-container');
         const msgEl = document.getElementById('controls-msg');
         let debounceTimers = {};

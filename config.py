@@ -2,17 +2,19 @@
 
 # Camera
 VIDEO_DEVICE = "/dev/video0"
-VIDEO_WIDTH = 1280
-VIDEO_HEIGHT = 720
-FRAMERATE = 15
-INPUT_FORMAT = "mjpeg"  # Lifecam HD-3000 outputs MJPEG natively
+INPUT_FORMAT = "mjpeg"  # Lifecam HD-5000 outputs MJPEG natively
+
+# Resolution presets
+RESOLUTION_PRESETS = {
+    "720p15": {"width": 1280, "height": 720, "fps": 15, "bitrate": "1500k", "keyframe_interval": 30},
+    "480p30": {"width": 640, "height": 480, "fps": 30, "bitrate": "1000k", "keyframe_interval": 60},
+}
+DEFAULT_RESOLUTION = "720p15"
 
 # Encoding
 VIDEO_CODEC = "libx264"
-VIDEO_BITRATE = "1500k"
 PRESET = "ultrafast"
 TUNE = "zerolatency"
-KEYFRAME_INTERVAL = 30  # 1 keyframe every 2s at 15fps
 
 # RTSP (mediamtx)
 RTSP_PORT = 8554
