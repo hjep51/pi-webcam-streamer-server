@@ -56,9 +56,11 @@ class StreamManager:
         # Ensure previous processes are cleaned up
         self.stop()
 
-        mediamtx_bin = Path(config.MEDIAMTX_BIN)
+        project_dir = Path(__file__).resolve().parent
+        mediamtx_bin = project_dir / config.MEDIAMTX_BIN
+        mediamtx_cfg = project_dir / config.MEDIAMTX_CONFIG
         if not mediamtx_bin.is_file():
-            return f"mediamtx binary not found at {mediamtx_bin.resolve()}. Run setup.sh first."
+            return f"mediamtx binary not found at {mediamtx_bin}. Run setup.sh first."
 
         if not Path(self.device).exists():
             return f"Camera device {self.device} not found. Is the webcam connected?"
@@ -66,7 +68,7 @@ class StreamManager:
         # Start mediamtx
         try:
             self._mediamtx_proc = subprocess.Popen(
-                [str(mediamtx_bin), config.MEDIAMTX_CONFIG],
+                [str(mediamtx_bin), str(mediamtx_cfg)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.PIPE,
             )

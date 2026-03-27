@@ -17,7 +17,7 @@ KEYFRAME_INTERVAL = 30  # 1 keyframe every 2s at 15fps
 # RTSP (mediamtx)
 RTSP_PORT = 8554
 STREAM_NAME = "stream"
-MEDIAMTX_BIN = "./mediamtx"
+MEDIAMTX_BIN = "mediamtx"
 MEDIAMTX_CONFIG = "mediamtx.yml"
 
 # Status page
