@@ -160,7 +160,10 @@ class StreamManager:
 class CameraControls:
     """Read/write V4L2 camera controls (brightness, focus) via v4l2-ctl."""
 
-    CONTROLS = {
+    # Maps our UI name → substring to match in v4l2-ctl output.
+    # The actual V4L2 control name is parsed from the output at runtime
+    # (e.g. "focus_auto" matches "focus_automatic_continuous").
+    MATCH_PATTERNS = {
         "brightness": "brightness",
         "focus_absolute": "focus_absolute",
         "focus_auto": "focus_auto",
@@ -169,6 +172,25 @@ class CameraControls:
     def __init__(self, device: str):
         self.device = device
         self._ranges: dict[str, dict] | None = None
+        self._v4l2_names: dict[str, str] = {}  # UI name → actual V4L2 control name
+
+    def _parse_ctrls_output(self) -> list[str]:
+        """Run v4l2-ctl --list-ctrls and return output lines."""
+        try:
+            out = subprocess.run(
+                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return out.stdout.splitlines()
+        except (OSError, subprocess.TimeoutExpired):
+            return []
+
+    @staticmethod
+    def _parse_ctrl_name(line: str) -> str | None:
+        """Extract the V4L2 control name from a --list-ctrls output line."""
+        # Lines look like: "          brightness 0x00980900 (int)  : min=0 ..."
+        m = re.match(r"\s*(\w+)\s+0x", line)
+        return m.group(1) if m else None
 
     def query_ranges(self) -> dict[str, dict]:
         """Return {name: {min, max, step, default, value}} for each supported control."""
@@ -176,47 +198,36 @@ class CameraControls:
             return self._ranges
 
         result: dict[str, dict] = {}
-        try:
-            out = subprocess.run(
-                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return result
+        self._v4l2_names = {}
 
-        for line in out.stdout.splitlines():
-            for name, v4l2_id in self.CONTROLS.items():
-                if v4l2_id not in line:
+        for line in self._parse_ctrls_output():
+            for ui_name, pattern in self.MATCH_PATTERNS.items():
+                if pattern not in line:
                     continue
+                actual_name = self._parse_ctrl_name(line)
+                if actual_name:
+                    self._v4l2_names[ui_name] = actual_name
                 nums = dict(re.findall(r"(min|max|step|default|value)=([-\d]+)", line))
                 if nums:
-                    result[name] = {k: int(v) for k, v in nums.items()}
+                    result[ui_name] = {k: int(v) for k, v in nums.items()}
         self._ranges = result
         return result
 
     def get_values(self) -> dict[str, int]:
         """Return current values for all supported controls."""
         values: dict[str, int] = {}
-        try:
-            out = subprocess.run(
-                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
-                capture_output=True, text=True, timeout=5,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            return values
-
-        for line in out.stdout.splitlines():
-            for name, v4l2_id in self.CONTROLS.items():
-                if v4l2_id not in line:
+        for line in self._parse_ctrls_output():
+            for ui_name, pattern in self.MATCH_PATTERNS.items():
+                if pattern not in line:
                     continue
                 m = re.search(r"value=([-\d]+)", line)
                 if m:
-                    values[name] = int(m.group(1))
+                    values[ui_name] = int(m.group(1))
         return values
 
     def set_value(self, name: str, value: int) -> str | None:
         """Set a single control. Returns error string or None on success."""
-        if name not in self.CONTROLS:
+        if name not in self.MATCH_PATTERNS:
             return f"Unknown control: {name}"
 
         ranges = self.query_ranges()
@@ -227,10 +238,14 @@ class CameraControls:
         if "min" in info and "max" in info:
             value = max(info["min"], min(info["max"], value))
 
-        v4l2_id = self.CONTROLS[name]
+        # Use the actual V4L2 control name discovered from the device
+        v4l2_name = self._v4l2_names.get(name)
+        if not v4l2_name:
+            return f"Could not determine V4L2 name for {name}"
+
         try:
             proc = subprocess.run(
-                ["v4l2-ctl", "-d", self.device, "--set-ctrl", f"{v4l2_id}={value}"],
+                ["v4l2-ctl", "-d", self.device, "--set-ctrl", f"{v4l2_name}={value}"],
                 capture_output=True, text=True, timeout=5,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
