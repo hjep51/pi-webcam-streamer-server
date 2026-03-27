@@ -261,7 +261,7 @@
             </div>
             <div class="info-item">
                 <label>Uptime</label>
-                <div class="value {{uptime_class}}">{{uptime}}</div>
+                <div class="value {{uptime_class}}" id="uptime-display" data-start="{{start_time}}">{{uptime}}</div>
             </div>
         </div>
 
@@ -483,6 +483,20 @@
         }
 
         fetchControls();
+
+        /* ---- Live uptime ticker ---- */
+        const uptimeEl = document.getElementById('uptime-display');
+        function tickUptime() {
+            const start = parseFloat(uptimeEl.dataset.start);
+            if (!start) return;
+            const elapsed = Math.floor(Date.now() / 1000 - start);
+            if (elapsed < 0) return;
+            const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+            const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+            const s = String(elapsed % 60).padStart(2, '0');
+            uptimeEl.textContent = h + ':' + m + ':' + s;
+        }
+        setInterval(tickUptime, 1000);
     })();
     </script>
 </body>

@@ -56,6 +56,12 @@ class StreamManager:
         return f"{h:02d}:{m:02d}:{s:02d}"
 
     @property
+    def start_time(self) -> float | None:
+        if self._start_time is not None and self.is_running:
+            return self._start_time
+        return None
+
+    @property
     def resolution_label(self) -> str:
         p = self.preset
         return f"{p['width']}x{p['height']} @ {p['fps']} fps"
@@ -326,6 +332,7 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 .replace("{{device}}", html.escape(manager.device))
                 .replace("{{resolution}}", html.escape(manager.resolution_label))
                 .replace("{{uptime}}", html.escape(manager.uptime))
+                .replace("{{start_time}}", str(manager.start_time or 0))
                 .replace("{{uptime_class}}", "" if running else "muted")
                 .replace("{{start_disabled}}", "disabled" if running else "")
                 .replace("{{stop_disabled}}", "" if running else "disabled")
