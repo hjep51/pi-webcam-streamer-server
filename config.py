@@ -22,5 +22,9 @@ STREAM_NAME = "stream"
 MEDIAMTX_BIN = "mediamtx"
 MEDIAMTX_CONFIG = "mediamtx.yml"
 
+# Authentication (used for both RTSP stream and web UI)
+AUTH_USERNAME = "admin"
+AUTH_PASSWORD = "password"
+
 # Status page
 STATUS_PORT = 8080

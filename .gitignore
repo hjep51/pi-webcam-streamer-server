@@ -1,5 +1,6 @@
-# mediamtx binary (downloaded by setup.sh)
+# mediamtx binary (downloaded by setup.sh) and generated config
 mediamtx
+mediamtx.yml
 
 # Python
 __pycache__/

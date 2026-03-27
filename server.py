@@ -2,10 +2,12 @@
 """Pi Webcam RTSP Streamer — streams a USB webcam over RTSP via mediamtx + FFmpeg."""
 
 import argparse
+import base64
 import html
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import subprocess
@@ -14,6 +16,7 @@ import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from threading import Thread
+from urllib.parse import quote
 
 import config
 
@@ -111,7 +114,9 @@ class StreamManager:
 
         # Start FFmpeg using current resolution preset
         p = self.preset
-        rtsp_target = f"rtsp://localhost:{config.RTSP_PORT}/{config.STREAM_NAME}"
+        user = quote(config.AUTH_USERNAME, safe="")
+        pw = quote(config.AUTH_PASSWORD, safe="")
+        rtsp_target = f"rtsp://{user}:{pw}@localhost:{config.RTSP_PORT}/{config.STREAM_NAME}"
         ffmpeg_cmd = [
             "ffmpeg",
             "-hide_banner",
@@ -292,6 +297,42 @@ class CameraControls:
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "status.html"
 
 
+def _write_mediamtx_config():
+    """Generate mediamtx.yml with auth credentials from config."""
+    project_dir = Path(__file__).resolve().parent
+    cfg_path = project_dir / config.MEDIAMTX_CONFIG
+    cfg_path.write_text(
+        f"""# Auto-generated — do not edit manually.
+# Docs: https://github.com/bluenviron/mediamtx
+
+logLevel: warn
+
+rtsp: yes
+rtspAddress: :{config.RTSP_PORT}
+
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+
+authInternalUsers:
+  - user: {config.AUTH_USERNAME}
+    pass: {config.AUTH_PASSWORD}
+    permissions:
+      - action: publish
+        path: ""
+      - action: read
+        path: ""
+      - action: playback
+        path: ""
+
+paths:
+  {config.STREAM_NAME}:
+    source: publisher
+"""
+    )
+
+
 def _get_local_ip() -> str:
     """Best-effort detection of the Pi's LAN IP address."""
     try:
@@ -300,6 +341,31 @@ def _get_local_ip() -> str:
             return s.getsockname()[0]
     except OSError:
         return "127.0.0.1"
+
+
+def _check_basic_auth(headers) -> bool:
+    """Return True if the request carries valid Basic auth credentials."""
+    auth = headers.get("Authorization", "")
+    if not auth.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(auth[6:]).decode()
+    except Exception:
+        return False
+    user, _, pw = decoded.partition(":")
+    return (
+        secrets.compare_digest(user, config.AUTH_USERNAME)
+        and secrets.compare_digest(pw, config.AUTH_PASSWORD)
+    )
+
+
+def _send_auth_required(handler):
+    """Send a 401 Unauthorized response."""
+    handler.send_response(401)
+    handler.send_header("WWW-Authenticate", 'Basic realm="Pi Webcam Streamer"')
+    handler.send_header("Content-Type", "text/plain; charset=utf-8")
+    handler.end_headers()
+    handler.wfile.write(b"Authentication required.")
 
 
 def make_handler(manager: StreamManager, cam_controls: CameraControls):
@@ -311,6 +377,9 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
     class Handler(BaseHTTPRequestHandler):
 
         def do_GET(self):
+            if not _check_basic_auth(self.headers):
+                _send_auth_required(self)
+                return
             if self.path == "/api/controls":
                 self._handle_get_controls()
                 return
@@ -323,7 +392,7 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 return
 
             running = manager.is_running
-            rtsp_url = f"rtsp://{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
+            rtsp_url = f"rtsp://{config.AUTH_USERNAME}:{config.AUTH_PASSWORD}@{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
             body = (
                 template
                 .replace("{{status_class}}", "running" if running else "stopped")
@@ -343,6 +412,9 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
             self.wfile.write(body.encode())
 
         def do_POST(self):
+            if not _check_basic_auth(self.headers):
+                _send_auth_required(self)
+                return
             if self.path == "/start":
                 err = manager.start()
                 if err:
@@ -482,6 +554,9 @@ def main():
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
+    # Generate mediamtx config with auth credentials
+    _write_mediamtx_config()
+
     # Auto-start the stream unless told not to
     if not args.no_autostart:
         print(f"Starting stream from {args.device}...")
@@ -491,7 +566,7 @@ def main():
             sys.exit(1)
 
     local_ip = _get_local_ip()
-    rtsp_url = f"rtsp://{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
+    rtsp_url = f"rtsp://{config.AUTH_USERNAME}:{config.AUTH_PASSWORD}@{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
     print(f"RTSP stream: {rtsp_url}")
     print(f"Status page: http://{local_ip}:{args.port}/")
     print("Press Ctrl+C to stop.\n")
