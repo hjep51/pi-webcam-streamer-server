@@ -295,6 +295,12 @@ class CameraControls:
 # ---------------------------------------------------------------------------
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "status.html"
+FAVICON_DIR = Path(__file__).resolve().parent / "favicon"
+FAVICON_CONTENT_TYPES = {
+    ".png": "image/png",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json",
+}
 
 
 def _write_mediamtx_config():
@@ -386,6 +392,21 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
             if self.path == "/api/resolution":
                 self._handle_get_resolution()
                 return
+
+            # Serve favicon files
+            favicon_file = FAVICON_DIR / Path(self.path).name
+            if self.path.startswith("/") and favicon_file.resolve().parent == FAVICON_DIR and favicon_file.is_file():
+                suffix = favicon_file.suffix
+                ctype = FAVICON_CONTENT_TYPES.get(suffix)
+                if ctype:
+                    data = favicon_file.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Cache-Control", "public, max-age=86400")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
 
             if self.path != "/":
                 self.send_error(404)
