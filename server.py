@@ -224,7 +224,8 @@ class CameraControls:
         if info is None:
             return f"Control {name} not supported by this camera"
 
-        value = max(info["min"], min(info["max"], value))
+        if "min" in info and "max" in info:
+            value = max(info["min"], min(info["max"], value))
 
         v4l2_id = self.CONTROLS[name]
         try:
