@@ -100,8 +100,8 @@ class StreamManager:
         try:
             self._mediamtx_proc = subprocess.Popen(
                 [str(mediamtx_bin), str(mediamtx_cfg)],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
             )
         except OSError as exc:
             return f"Failed to start mediamtx: {exc}"
@@ -109,9 +109,9 @@ class StreamManager:
         # Give mediamtx a moment to bind its port
         time.sleep(1)
         if self._mediamtx_proc.poll() is not None:
-            stderr = self._mediamtx_proc.stderr.read().decode(errors="replace") if self._mediamtx_proc.stderr else ""
+            output = self._mediamtx_proc.stdout.read().decode(errors="replace") if self._mediamtx_proc.stdout else ""
             self._mediamtx_proc = None
-            return f"mediamtx exited immediately: {stderr[:500]}"
+            return f"mediamtx exited immediately: {output[:500]}"
 
         # Start FFmpeg using current resolution preset
         p = self.preset
