@@ -3,7 +3,9 @@
 
 import argparse
 import html
+import json
 import os
+import re
 import signal
 import socket
 import subprocess
@@ -152,6 +154,96 @@ class StreamManager:
 
 
 # ---------------------------------------------------------------------------
+# Camera V4L2 controls
+# ---------------------------------------------------------------------------
+
+class CameraControls:
+    """Read/write V4L2 camera controls (brightness, focus) via v4l2-ctl."""
+
+    CONTROLS = {
+        "brightness": "brightness",
+        "focus_absolute": "focus_absolute",
+        "focus_auto": "focus_auto",
+    }
+
+    def __init__(self, device: str):
+        self.device = device
+        self._ranges: dict[str, dict] | None = None
+
+    def query_ranges(self) -> dict[str, dict]:
+        """Return {name: {min, max, step, default, value}} for each supported control."""
+        if self._ranges is not None:
+            return self._ranges
+
+        result: dict[str, dict] = {}
+        try:
+            out = subprocess.run(
+                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return result
+
+        for line in out.stdout.splitlines():
+            for name, v4l2_id in self.CONTROLS.items():
+                if v4l2_id not in line:
+                    continue
+                nums = dict(re.findall(r"(min|max|step|default|value)=([-\d]+)", line))
+                if nums:
+                    result[name] = {k: int(v) for k, v in nums.items()}
+        self._ranges = result
+        return result
+
+    def get_values(self) -> dict[str, int]:
+        """Return current values for all supported controls."""
+        values: dict[str, int] = {}
+        try:
+            out = subprocess.run(
+                ["v4l2-ctl", "-d", self.device, "--list-ctrls"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return values
+
+        for line in out.stdout.splitlines():
+            for name, v4l2_id in self.CONTROLS.items():
+                if v4l2_id not in line:
+                    continue
+                m = re.search(r"value=([-\d]+)", line)
+                if m:
+                    values[name] = int(m.group(1))
+        return values
+
+    def set_value(self, name: str, value: int) -> str | None:
+        """Set a single control. Returns error string or None on success."""
+        if name not in self.CONTROLS:
+            return f"Unknown control: {name}"
+
+        ranges = self.query_ranges()
+        info = ranges.get(name)
+        if info is None:
+            return f"Control {name} not supported by this camera"
+
+        value = max(info["min"], min(info["max"], value))
+
+        v4l2_id = self.CONTROLS[name]
+        try:
+            proc = subprocess.run(
+                ["v4l2-ctl", "-d", self.device, "--set-ctrl", f"{v4l2_id}={value}"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return str(exc)
+
+        if proc.returncode != 0:
+            return proc.stderr.strip() or f"v4l2-ctl exited with code {proc.returncode}"
+
+        # Invalidate cached ranges so next read picks up the new value
+        self._ranges = None
+        return None
+
+
+# ---------------------------------------------------------------------------
 # HTTP status page
 # ---------------------------------------------------------------------------
 
@@ -168,7 +260,7 @@ def _get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def make_handler(manager: StreamManager):
+def make_handler(manager: StreamManager, cam_controls: CameraControls):
     """Factory that returns a request handler class bound to *manager*."""
 
     template = TEMPLATE_PATH.read_text()
@@ -177,6 +269,10 @@ def make_handler(manager: StreamManager):
     class Handler(BaseHTTPRequestHandler):
 
         def do_GET(self):
+            if self.path == "/api/controls":
+                self._handle_get_controls()
+                return
+
             if self.path != "/":
                 self.send_error(404)
                 return
@@ -208,6 +304,9 @@ def make_handler(manager: StreamManager):
                     return
             elif self.path == "/stop":
                 manager.stop()
+            elif self.path == "/api/controls":
+                self._handle_set_controls()
+                return
             else:
                 self.send_error(404)
                 return
@@ -216,6 +315,55 @@ def make_handler(manager: StreamManager):
             self.send_response(303)
             self.send_header("Location", "/")
             self.end_headers()
+
+        # -- Camera controls API --
+
+        def _handle_get_controls(self):
+            ranges = cam_controls.query_ranges()
+            values = cam_controls.get_values()
+            payload = {}
+            for name, info in ranges.items():
+                payload[name] = {**info, "value": values.get(name, info.get("value", 0))}
+            self._send_json(200, payload)
+
+        def _handle_set_controls(self):
+            length = int(self.headers.get("Content-Length", 0))
+            if length == 0 or length > 4096:
+                self._send_json(400, {"error": "Invalid request body"})
+                return
+            try:
+                body = json.loads(self.rfile.read(length))
+            except (json.JSONDecodeError, ValueError):
+                self._send_json(400, {"error": "Invalid JSON"})
+                return
+
+            if not isinstance(body, dict):
+                self._send_json(400, {"error": "Expected JSON object"})
+                return
+
+            errors = {}
+            for name, value in body.items():
+                if not isinstance(value, int):
+                    errors[name] = "Value must be an integer"
+                    continue
+                err = cam_controls.set_value(name, value)
+                if err:
+                    errors[name] = err
+
+            if errors:
+                self._send_json(400, {"errors": errors})
+            else:
+                self._handle_get_controls()
+
+        # -- Helpers --
+
+        def _send_json(self, code: int, data: dict):
+            body = json.dumps(data).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _send_plain(self, code: int, message: str):
             self.send_response(code)
@@ -242,6 +390,7 @@ def main():
     args = parser.parse_args()
 
     manager = StreamManager(device=args.device)
+    cam_controls = CameraControls(device=args.device)
 
     # Graceful shutdown
     def shutdown(signum, frame):
@@ -266,7 +415,7 @@ def main():
     print(f"Status page: http://{local_ip}:{args.port}/")
     print("Press Ctrl+C to stop.\n")
 
-    httpd = HTTPServer(("0.0.0.0", args.port), make_handler(manager))
+    httpd = HTTPServer(("0.0.0.0", args.port), make_handler(manager, cam_controls))
     httpd.serve_forever()
 
 
