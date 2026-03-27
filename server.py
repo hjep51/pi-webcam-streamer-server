@@ -413,7 +413,9 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 return
 
             running = manager.is_running
-            rtsp_url = f"rtsp://{config.AUTH_USERNAME}:{config.AUTH_PASSWORD}@{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
+            # Use the host the client connected to, so external IP shows correctly
+            request_host = (self.headers.get("Host") or local_ip).split(":")[0]
+            rtsp_url = f"rtsp://{config.AUTH_USERNAME}:{config.AUTH_PASSWORD}@{request_host}:{config.RTSP_PORT}/{config.STREAM_NAME}"
             body = (
                 template
                 .replace("{{status_class}}", "running" if running else "stopped")
