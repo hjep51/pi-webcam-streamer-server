@@ -41,6 +41,7 @@ else
         -days 3650 \
         -subj "/CN=Pi Webcam Streamer" \
         -addext "subjectAltName=IP:$(hostname -I | awk '{print $1}')"
+    chmod 644 "${SCRIPT_DIR}/cert.pem" "${SCRIPT_DIR}/key.pem"
     echo "    Certificate generated (valid for 10 years)."
 fi
 
