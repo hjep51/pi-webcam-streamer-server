@@ -10,6 +10,7 @@ import re
 import secrets
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -601,10 +602,26 @@ def main():
     local_ip = _get_local_ip()
     rtsp_url = f"rtsp://{config.AUTH_USERNAME}:{config.AUTH_PASSWORD}@{local_ip}:{config.RTSP_PORT}/{config.STREAM_NAME}"
     print(f"RTSP stream: {rtsp_url}")
-    print(f"Status page: http://{local_ip}:{args.port}/")
-    print("Press Ctrl+C to stop.\n")
 
     httpd = HTTPServer(("0.0.0.0", args.port), make_handler(manager, cam_controls))
+
+    # Wrap with SSL if cert files exist
+    project_dir = Path(__file__).resolve().parent
+    cert_file = project_dir / config.SSL_CERTFILE
+    key_file = project_dir / config.SSL_KEYFILE
+    if cert_file.is_file() and key_file.is_file():
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=str(cert_file), keyfile=str(key_file))
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        scheme = "https"
+    else:
+        scheme = "http"
+        print("WARNING: No SSL certificate found — serving over HTTP (PWA install won't work).")
+        print("         Run setup.sh to generate a self-signed certificate.")
+
+    print(f"Status page: {scheme}://{local_ip}:{args.port}/")
+    print("Press Ctrl+C to stop.\n")
+
     httpd.serve_forever()
 
 

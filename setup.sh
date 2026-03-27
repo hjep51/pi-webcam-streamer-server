@@ -12,15 +12,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "=== Pi Webcam RTSP Streamer Setup ==="
 
 # Install system dependencies
-echo "[1/3] Installing system dependencies..."
+echo "[1/4] Installing system dependencies..."
 apt-get update -qq
 apt-get install -y ffmpeg v4l-utils python3 python3-venv
 
 # Download mediamtx
 if [ -f "${SCRIPT_DIR}/mediamtx" ]; then
-    echo "[2/3] mediamtx binary already exists, skipping download."
+    echo "[2/4] mediamtx binary already exists, skipping download."
 else
-    echo "[2/3] Downloading mediamtx ${MEDIAMTX_VERSION} (${MEDIAMTX_ARCH})..."
+    echo "[2/4] Downloading mediamtx ${MEDIAMTX_VERSION} (${MEDIAMTX_ARCH})..."
     TMP_DIR="$(mktemp -d)"
     curl -fsSL "${MEDIAMTX_URL}" -o "${TMP_DIR}/mediamtx.tar.gz"
     tar -xzf "${TMP_DIR}/mediamtx.tar.gz" -C "${TMP_DIR}"
@@ -30,8 +30,22 @@ else
     echo "    Downloaded to ${SCRIPT_DIR}/mediamtx"
 fi
 
+# Generate self-signed SSL certificate for HTTPS (needed for PWA install)
+if [ -f "${SCRIPT_DIR}/cert.pem" ] && [ -f "${SCRIPT_DIR}/key.pem" ]; then
+    echo "[3/4] SSL certificate already exists, skipping generation."
+else
+    echo "[3/4] Generating self-signed SSL certificate..."
+    openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "${SCRIPT_DIR}/key.pem" \
+        -out "${SCRIPT_DIR}/cert.pem" \
+        -days 3650 \
+        -subj "/CN=Pi Webcam Streamer" \
+        -addext "subjectAltName=IP:$(hostname -I | awk '{print $1}')"
+    echo "    Certificate generated (valid for 10 years)."
+fi
+
 # Set up Python virtual environment
-echo "[3/3] Setting up Python virtual environment..."
+echo "[4/4] Setting up Python virtual environment..."
 if [ ! -d "${SCRIPT_DIR}/venv" ]; then
     python3 -m venv "${SCRIPT_DIR}/venv"
 fi
