@@ -1,0 +1,17 @@
+# mediamtx binary (downloaded by setup.sh)
+mediamtx
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

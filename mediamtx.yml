@@ -1,0 +1,20 @@
+# mediamtx configuration for Pi webcam streamer
+# Docs: https://github.com/bluenviron/mediamtx
+
+# Logging
+logLevel: warn
+
+# RTSP server
+rtsp: yes
+rtspAddress: :8554
+
+# Disable unused protocols
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+
+# Stream paths
+paths:
+  stream:
+    source: publisher
