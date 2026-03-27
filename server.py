@@ -296,6 +296,7 @@ class CameraControls:
 
 TEMPLATE_PATH = Path(__file__).parent / "templates" / "status.html"
 FAVICON_DIR = Path(__file__).resolve().parent / "favicon"
+SW_PATH = Path(__file__).resolve().parent / "sw.js"
 FAVICON_CONTENT_TYPES = {
     ".png": "image/png",
     ".ico": "image/x-icon",
@@ -391,6 +392,17 @@ def make_handler(manager: StreamManager, cam_controls: CameraControls):
                 return
             if self.path == "/api/resolution":
                 self._handle_get_resolution()
+                return
+
+            # Serve service worker
+            if self.path == "/sw.js" and SW_PATH.is_file():
+                data = SW_PATH.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/javascript")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Cache-Control", "no-cache")
+                self.end_headers()
+                self.wfile.write(data)
                 return
 
             # Serve favicon files
