@@ -323,6 +323,11 @@ hls: no
 webrtc: no
 srt: no
 
+# Disable metrics/API listener to avoid port conflicts
+metrics: no
+pprof: no
+api: no
+
 authInternalUsers:
   - user: {config.AUTH_USERNAME}
     pass: {config.AUTH_PASSWORD}
